@@ -1,0 +1,24 @@
+[
+  {
+    "key": "server",
+    "type": "input",
+    "defaultValue": "",
+    "templateOptions": {
+      "label": "SQL Server",
+      "placeholder": "",
+      "description": "Hostname or IP of SQL Server",
+      "required": true
+    }
+  },
+  {
+    "key": "database",
+    "type": "input",
+    "defaultValue": "SSRPM",
+    "templateOptions": {
+      "label": "Database name",
+      "placeholder": "",
+      "description": "SSRPM Database name",
+      "required": true
+    }
+  }
+]
