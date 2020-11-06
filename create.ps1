@@ -40,7 +40,7 @@ if(-Not($dryRun -eq $True)) {
         $SqlConnection = New-Object System.Data.SqlClient.SqlConnection
         $SqlConnection.ConnectionString = $ConnectionString;
         $SqlCmd = New-Object System.Data.SqlClient.SqlCommand
-        $SqlCmd.CommandText = "ssrpm.dbo.enrolluser"
+        $SqlCmd.CommandText = "$($config.database).dbo.enrolluser"
         $SqlCmd.CommandType = [System.Data.CommandType]::StoredProcedure
         [void]$SqlCmd.Parameters.AddWithValue("@ProfileID", '10') 
         [void]$SqlCmd.Parameters.AddWithValue("@AD_CononicalName", $account.CanonicalName)
