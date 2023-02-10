@@ -20,5 +20,25 @@
       "description": "SSRPM Database name",
       "required": true
     }
+  },
+  {
+    "key": "updateUserOnCorrelate",
+    "type": "checkbox",
+    "defaultValue": false,
+    "templateOptions": {
+      "label": "Update User when correlating and mapped data differs from data in SSRPM",
+      "required": false,
+      "description": "This will update SSRPM users in the create action (not just correlate)."
+    }
+  },
+  {
+    "key": "isDebug",
+    "type": "checkbox",
+    "defaultValue": false,
+    "templateOptions": {
+      "label": "Toggle debug logging",
+      "description": "When toggled, debug logging will be displayed",
+      "required": false
+    }
   }
 ]

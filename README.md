@@ -6,9 +6,18 @@
 
 <br />
 
-Create Stored Procedure in SSRPM database. See enrollUser.sql
-
+## Introduction
+The interface to communicate directly with the SSRPM database. For this connector you need to execute create-storedProcedures.sql on your SSRPM Database.
 Please note this requires the SSRPM profile options to see "Storage of User Answers" to "Clear Text"
+
+## Prerequisites
+- [ ] HelloID Provisioning agent (cloud or on-prem).
+- [ ] Stored procedures in you Database
+- [ ] Connection variables (server, database optional login)
+- [ ] HelloID service-account has read/write permissions on SSRPM-DB
+
 
 # HelloID Docs
 The official HelloID documentation can be found at: https://docs.helloid.com/
+
+
