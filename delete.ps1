@@ -1,3 +1,9 @@
+#####################################################
+# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-delete
+#
+# Version: 2.0.0
+#####################################################
+
 #Initialize default properties
 $p = $person | ConvertFrom-Json
 $c = $configuration | ConvertFrom-Json
@@ -54,14 +60,15 @@ function Remove-SSRPMuser {
 
 try {
     $account = [PSCustomObject]@{
-        SSRPMID        = $aref
+        SSRPMID = $aref
     }
 
-       if (-Not($dryRun -eq $True)) {
-            $result = Remove-SSRPMuser -connectionString $connectionString -account $account       
-            }else {
-                write-verbose -verbose "will be deleted during enforcement: $($account | convertto-json)"
-            } 
+    if (-Not($dryRun -eq $True)) {
+        $result = Remove-SSRPMuser -connectionString $connectionString -account $account       
+    }
+    else {
+        write-verbose -verbose "will be deleted during enforcement: $($account | convertto-json)"
+    } 
 
     $auditLogs.Add([PSCustomObject]@{
             Message = "deleted user successfully for $($p.displayname)"

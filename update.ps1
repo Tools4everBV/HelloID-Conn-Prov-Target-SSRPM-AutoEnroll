@@ -1,3 +1,9 @@
+#####################################################
+# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-create
+#
+# Version: 2.0.0
+#####################################################
+
 #Initialize default properties
 $p = $person | ConvertFrom-Json
 $c = $configuration | ConvertFrom-Json
@@ -26,8 +32,8 @@ function Update-SSRPMuser {
     )    
     try {
         if ([string]::IsNullOrEmpty($account.sAMAccountName) -OR
-                [string]::IsNullOrEmpty($account.CanonicalName) -OR       
-                [string]::IsNullOrEmpty($account.ObjectSID)) {
+            [string]::IsNullOrEmpty($account.CanonicalName) -OR       
+            [string]::IsNullOrEmpty($account.ObjectSID)) {
             Throw "one of the mandatory field is empty or missing"
         }
 
@@ -56,8 +62,10 @@ function Update-SSRPMuser {
         [void]$SqlCmd.Parameters.AddWithValue("@AD_sAMAccountName", $account.SamAccountName)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_ObjectSID", $account.ObjectSID)
+
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_EmailAddress", $account.PrivateMail)
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_Mobile", $account.PrivateMobile)
         [void]$SqlCmd.Parameters.AddWithValue("@XML_Answers", $XML_Answers)
-        
         
         $SqlCmd.Connection = $SqlConnection
         $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
@@ -102,7 +110,6 @@ try {
 
     $account = [PSCustomObject]@{
         SSRPMID        = $aref
-
         # #on dependent system:
         # sAMAccountName = $p.accounts._2a468112bb3e42ed87f6f53c936d6640.SamAccountName
         # mail           = $p.accounts._2a468112bb3e42ed87f6f53c936d6640.mail
@@ -115,6 +122,10 @@ try {
         mail           = $null
         ObjectSID      = $null
 
+
+        #SSRPM enrolment variables (optional):
+        PrivateMobile  = $p.contact.Personal.Phone.Mobile
+        privateMail    = $p.contact.Personal.Email
         answers        = @(@{
                 QuestionID = 16 #geboortedatum
                 text       = format-date -date $p.details.BirthDate  -InputFormat 'yyyy-MM-ddThh:mm:ssZ' -OutputFormat "dd-MM-yyyy"
@@ -131,7 +142,7 @@ try {
     }
 
     try {
-        $adUser = Get-AdUser -ldapfilter "(employeeid=$($p.externalID))" -Properties CanonicalName,samaccountname,mail
+        $adUser = Get-AdUser -ldapfilter "(employeeid=$($p.externalID))" -Properties CanonicalName, samaccountname, mail
     }
     catch {
         $adUser = null
@@ -143,8 +154,9 @@ try {
     $account.mail = $aduser.mail
 
     if (-Not($dryRun -eq $True)) {
-            $result = Update-SSRPMuser -connectionString $connectionString -account $account       
-    }else {
+        $result = Update-SSRPMuser -connectionString $connectionString -account $account       
+    }
+    else {
         write-verbose "will update during enforcement: $($account | convertto-json)"
     } 
 
@@ -160,19 +172,21 @@ catch {
             IsError = $true
         })
 }
+finally {
+    #build up result
+    $result = [PSCustomObject]@{ 
+        Success          = $success
+        AccountReference = $account.SSRPMID
+        auditLogs        = $auditLogs
+        Account          = $account
+        # Optionally return data for use in other systems
+        ExportData       = @{
+            ID             = $account.SSRPMID
+            samaccountname = $account.samaccountname
+        }
+    };
 
-#build up result
-$result = [PSCustomObject]@{ 
-    Success          = $success
-    AccountReference = $account.SSRPMID
-    auditLogs        = $auditLogs
-    Account          = $account
-    # Optionally return data for use in other systems
-    ExportData       = @{
-        ID             = $account.SSRPMID
-        samaccountname = $account.samaccountname
-    }
-};
+    #send result back
+    Write-Output $result | ConvertTo-Json -Depth 10
+}
 
-#send result back
-Write-Output $result | ConvertTo-Json -Depth 10
