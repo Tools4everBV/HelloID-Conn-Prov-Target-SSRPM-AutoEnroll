@@ -286,8 +286,26 @@ BEGIN
 		 WHERE [Account ID] = @SSRPM_ID
 		       AND [Question] = @UserQuestion
 
+		-- insert if user-answer combination does not exists
+		IF @@ROWCOUNT = 0
+		BEGIN
+			INSERT INTO [dbo].[User Answers]
+				([Account ID]
+				,[Question]
+				,[Answer]
+				,[MD5Hash]
+				,[Type]
+				)
+			VALUES
+				(@SSRPM_ID
+				,@userQuestion
+				,@UserAnswer
+				,''
+				,@AnswerType
+				)
+		END
 
-		end
+		END
 		SELECT @MinQuestionID = MIN(QuestionID) 
 			FROM #questions 
 			WHERE QuestionID > @MinQuestionID
