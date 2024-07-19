@@ -1,41 +1,28 @@
-USE [SSRPM]
-GO
-/****** Object:  StoredProcedure [dbo].[deleteUser]    Script Date: 25-1-2023 16:48:37 ******/
+
+/*
+#####################################################
+# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-stored-procedures
+#
+# Version: 2.0.0
+#####################################################
+*/
+
+
+/****** Object:  StoredProcedure [dbo].[EnrollUser]    Script Date: 22/01/2024 10:34:17 ******/
+USE [SSRPM DATABASE] --change into your database name
+
 SET ANSI_NULLS ON
 GO
+
 SET QUOTED_IDENTIFIER ON
 GO
-
 
 -- =============================================
 -- Author:		JK@Tools4Ever
 -- Create date: 10/16/2013
 -- Description:	Auto enrolls a user into SSRPM and sets specific answers to the questions contained within the profile
 ---			@XML_Answers = <answers><a1>John</a1><a2>Pat</a2>...</answers>
--- =============================================
-CREATE PROCEDURE [dbo].[deleteUser]
-	@SSRPM_ID varchar(255)
-AS
-BEGIN
-
-	DELETE [Enrolled Users]
-		WHERE ID = @SSRPM_ID
-
-	DELETE [User Answers]
-		WHERE [Account ID] = @SSRPM_ID
-	
-END
-GO
-/****** Object:  StoredProcedure [dbo].[EnrollUser]    Script Date: 25-1-2023 16:48:37 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
--- =============================================
--- Author:		JK@Tools4Ever
--- Create date: 10/16/2013
--- Description:	Auto enrolls a user into SSRPM and sets specific answers to the questions contained within the profile
----			@XML_Answers = <answers><a1>John</a1><a2>Pat</a2>...</answers>
+--- RN: 2024-01-22: Answers are optional; added option to add mobile and personal e-mail
 -- =============================================
 CREATE PROCEDURE [dbo].[EnrollUser]
 	@ProfileID int,
@@ -43,7 +30,9 @@ CREATE PROCEDURE [dbo].[EnrollUser]
 	@AD_sAMAccountName varchar(255),
 	@AD_ObjectSID varchar(255),
 	@AD_EmailAddress varchar(255),
-	@XML_Answers XML
+	@Private_Mobile varchar(255) = null,
+	@Private_EmailAddress varchar(255) = null,
+	@XML_Answers XML = null
 AS
 BEGIN
 
@@ -75,9 +64,10 @@ BEGIN
 	select @ProfileName = [Profile Name],
 			@Options = [Options]
 		from Profiles where [ProfileID] = @ProfileID
+
 	declare @ExistingCount int
 	set @ExistingCount = 0
-	select @ExistingCount = COUNT(*) From [SSRPM].[dbo].[Enrolled Users] 
+	select @ExistingCount = COUNT(*) From [Enrolled Users] 
 		  where sAMAccountName = @AD_sAMAccountName and 
 				[Account SID] = @AD_ObjectSID and
 				[Profile Name] = @ProfileName
@@ -118,13 +108,14 @@ BEGIN
 		,@ProfileName 
 		,@Options 
 		,@AD_ObjectSID 
-		,NULL 
-		,NULL 
-		,NULL 
-		,'' 
-		,@AD_EmailAddress
+		,NULL
+		,NULL
+		,NULL
+		,ISNULL(@Private_Mobile,'')
+		,ISNULL(@Private_EmailAddress,'')
 		,@AD_sAMAccountName 
-		,'')
+		,ISNULL(@AD_EmailAddress,'')
+		)
 	select @NewUserID = SCOPE_IDENTITY()
 
 	--now loop thru the questions to insert all the q/a's into the User Answers table
@@ -141,10 +132,11 @@ BEGIN
 	BEGIN
 	
 		select @UserQuestion = Question from #questions where QuestionID = @MinQuestionID
+
 		select @UserAnswer = @XML_Answers.value('(/answers/a[@id=sql:variable("@MinQuestionID")])[1]', 'varchar(255)')
 	if (@UserAnswer is not null)
 		begin
-			insert into [SSRPM].[dbo].[User Answers] ([Account ID] 
+			insert into [User Answers] ([Account ID] 
 				,[Question] 
 				,[Answer] 
 				,[MD5Hash] 
@@ -156,7 +148,7 @@ BEGIN
 				,@UserQuestion 
 				,@UserAnswer 
 				,'' 
-				,@AnswerType  
+				,@AnswerType
 				,NULL 
 				,NULL 
 				,NULL)
@@ -170,17 +162,34 @@ BEGIN
 	drop table #questions
 END
 GO
-/****** Object:  StoredProcedure [dbo].[UpdateUser]    Script Date: 25-1-2023 16:48:37 ******/
+
+USE [T4E_SSRPM]
+GO
+
+/****** Object:  StoredProcedure [dbo].[UpdateUser]    Script Date: 22/01/2024 10:35:51 ******/
 SET ANSI_NULLS ON
 GO
+
 SET QUOTED_IDENTIFIER ON
 GO
+
+USE [T4E_SSRPM]
+GO
+
+/****** Object:  StoredProcedure [dbo].[UpdateUser]    Script Date: 22/01/2024 10:35:51 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
 
 -- =============================================
 -- Author:		JK@Tools4Ever
 -- Create date: 10/16/2013
 -- Description:	Auto enrolls a user into SSRPM and sets specific answers to the questions contained within the profile
 ---			@XML_Answers = <answers><a1>John</a1><a2>Pat</a2>...</answers>
+--- RN: 2024-01-22: Answers are optional; added option to add mobile and personal e-mail
 -- =============================================
 CREATE PROCEDURE [dbo].[UpdateUser]
 	@SSRPM_ID varchar(255),
@@ -188,7 +197,9 @@ CREATE PROCEDURE [dbo].[UpdateUser]
 	@AD_sAMAccountName varchar(255),
 	@AD_ObjectSID varchar(255),
 	@AD_EmailAddress varchar(255),
-	@XML_Answers XML
+	@Private_Mobile varchar(255) = null,
+	@Private_EmailAddress varchar(255) = null,
+	@XML_Answers XML = null
 
 AS
 BEGIN
@@ -237,7 +248,10 @@ BEGIN
 		set sAMAccountName = @AD_sAMAccountName
 			,[Account SID] = @AD_ObjectSID
 			,[Account Name] = @AD_CanonicalName
-			,[Email Address] = @AD_EmailAddress
+
+			,[InternalEmailAddress] = @AD_EmailAddress
+			,[Email Address] = @Private_EmailAddress
+			,[Mobile Phone Number] = @Private_Mobile
 		WHERE ID = @SSRPM_ID
 		end
 
@@ -272,8 +286,26 @@ BEGIN
 		 WHERE [Account ID] = @SSRPM_ID
 		       AND [Question] = @UserQuestion
 
+		-- insert if user-answer combination does not exists
+		IF @@ROWCOUNT = 0
+		BEGIN
+			INSERT INTO [dbo].[User Answers]
+				([Account ID]
+				,[Question]
+				,[Answer]
+				,[MD5Hash]
+				,[Type]
+				)
+			VALUES
+				(@SSRPM_ID
+				,@userQuestion
+				,@UserAnswer
+				,''
+				,@AnswerType
+				)
+		END
 
-		end
+		END
 		SELECT @MinQuestionID = MIN(QuestionID) 
 			FROM #questions 
 			WHERE QuestionID > @MinQuestionID
@@ -283,3 +315,37 @@ BEGIN
 	
 END
 GO
+
+
+USE [T4E_SSRPM]
+GO
+
+/****** Object:  StoredProcedure [dbo].[deleteUser]    Script Date: 22/01/2024 10:36:17 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+-- =============================================
+-- Author:		JK@Tools4Ever
+-- Create date: 10/16/2013
+-- Description:	Auto enrolls a user into SSRPM and sets specific answers to the questions contained within the profile
+---			@XML_Answers = <answers><a1>John</a1><a2>Pat</a2>...</answers>
+-- =============================================
+CREATE PROCEDURE [dbo].[deleteUser]
+	@SSRPM_ID varchar(255)
+AS
+BEGIN
+
+	DELETE [Enrolled Users]
+		WHERE ID = @SSRPM_ID
+
+	DELETE [User Answers]
+		WHERE [Account ID] = @SSRPM_ID
+	
+END
+GO
+
+

@@ -1,3 +1,9 @@
+#####################################################
+# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-create
+#
+# Version: 2.0.0
+#####################################################
+
 #Initialize default properties
 $p = $person | ConvertFrom-Json
 $c = $configuration | ConvertFrom-Json
@@ -27,6 +33,7 @@ function get-SSRPMuser {
         , [Parameter(Mandatory)][string]$ConnectionString
     )
     try {
+        write-verbose "search SSRPM database for user with username: $($account.samaccountname)"
         $query = "SELECT * FROM [enrolled users] WHERE samaccountname = '$($account.samaccountname)'"
 
         # Initialize connection and query information
@@ -43,7 +50,9 @@ function get-SSRPMuser {
         $DataSet = New-Object System.Data.DataSet
         $SqlAdapter.Fill($DataSet) | out-null
         $sqlData = $DataSet.Tables[0]
+
         
+        write-verbose "Found $(($sqlData | measure-object).count) user in SSRPM database"
         return $sqlData | Select-Object -Property * -ExcludeProperty RowError, RowState, Table, ItemArray, HasErrors
     }
     catch {
@@ -88,8 +97,11 @@ function New-SSRPMuser {
         [void]$SqlCmd.Parameters.AddWithValue("@ProfileID", $ProfileID) 
         [void]$SqlCmd.Parameters.AddWithValue("@AD_CanonicalName", $account.CanonicalName)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_sAMAccountName", $account.SamAccountName)
-        [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)
+        [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)        
         [void]$SqlCmd.Parameters.AddWithValue("@AD_ObjectSID", $account.ObjectSID)
+
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_EmailAddress", $account.PrivateMail)
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_Mobile", $account.PrivateMobile)
         [void]$SqlCmd.Parameters.AddWithValue("@XML_Answers", $XML_Answers)
 
         $SqlCmd.Connection = $SqlConnection
@@ -145,8 +157,10 @@ function Update-SSRPMuser {
         [void]$SqlCmd.Parameters.AddWithValue("@AD_sAMAccountName", $account.SamAccountName)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_ObjectSID", $account.ObjectSID)
+
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_EmailAddress", $account.PrivateMail)
+        [void]$SqlCmd.Parameters.AddWithValue("@Private_Mobile", $account.PrivateMobile)
         [void]$SqlCmd.Parameters.AddWithValue("@XML_Answers", $XML_Answers)
-        
         
         $SqlCmd.Connection = $SqlConnection
         $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
@@ -203,8 +217,10 @@ try {
         sAMAccountName = $null
         mail           = $null
         ObjectSID      = $null
-     
 
+        #SSRPM enrolment variables:
+        PrivateMobile  = $p.contact.Personal.Phone.Mobile
+        privateMail    = $p.contact.Personal.Email
         answers        = @(@{
                 QuestionID = 16 #geboortedatum
                 text       = format-date -date $p.details.BirthDate  -InputFormat 'yyyy-MM-ddThh:mm:ssZ' -OutputFormat "dd-MM-yyyy"
@@ -218,21 +234,26 @@ try {
                 text       = $p.externalID
             }
         )
+
     }
 
+
+
     try {
+        write-verbose "search AD for user with employeeID: $($p.externalID)"
         $adUser = Get-AdUser -ldapfilter "(employeeid=$($p.externalID))" -Properties CanonicalName, samaccountname, mail
+ 
     }
     catch {
-        $adUser = null
+        write-verbose "$($_)"
+        $adUser = $null
     }
     
     $account.CanonicalName = $adUser.CanonicalName
     $account.ObjectSID = $aduser.sid.value
     $account.samaccountname = $aduser.samaccountname
     $account.mail = $aduser.mail
-    
-    write-verbose "try correlating user"
+
     $SSRPMuser = get-SSRPMuser -account $account -connectionString $connectionString
     if (($SSRPMuser | measure-object).count -eq 1) {
         write-verbose "User with samaccountname $($account.samaccountname) found in SSRPM DB"    
@@ -265,19 +286,18 @@ try {
                 $result = Update-SSRPMuser -connectionString $connectionString -account $account       
             }
             else {
-                write-verbose "will update during enforcement: $($account | convertto-json)"
+                write-warning "[dryrun] will update during enforcement: $($account | convertto-json)"
             }           
         
         }
         "create" {
             write-verbose "creating user"
-
             
             if (-Not($dryRun -eq $True)) {
                 $result = New-SSRPMuser -connectionString $connectionString -account $account -ProfileID 3                
             }
             else {
-                write-verbose  "will create during enforcement: $($account | convertto-json)"
+                write-warning "[dryrun] will create during enforcement: $($account | convertto-json)"
             }
             $SSRPMuser = get-SSRPMuser -account $account  -connectionString $connectionString 
             $account.SSRPMID = $SSRPMuser.id
@@ -293,24 +313,34 @@ try {
 }
 catch {
     $success = $false
+    write-error "$action user failed - $($_)"
     $auditLogs.Add([PSCustomObject]@{
             Message = "$action user failed - $($_)"
             IsError = $true
         })
 }
+finally {
+    #build up result
+    $aref = $account.SSRPMID
 
-#build up result
-$result = [PSCustomObject]@{ 
-    Success          = $success
-    AccountReference = $account.SSRPMID
-    auditLogs        = $auditLogs
-    Account          = $account
-    # Optionally return data for use in other systems
-    ExportData       = @{
-        ID             = $account.SSRPMID
-        samaccountname = $account.samaccountname
+    if ([string]::isnullorempty($account.SSRPMID) -and $dryrun) {
+        $aref = "[dryrun]dummy"
     }
-};
 
-#send result back
-Write-Output $result | ConvertTo-Json -Depth 10
+    $result = [PSCustomObject]@{ 
+        Success          = $success
+        AccountReference = $aref
+        auditLogs        = $auditLogs
+        Account          = $account
+        # Optionally return data for use in other systems
+        ExportData       = @{
+            ID             = $account.SSRPMID
+            samaccountname = $account.samaccountname
+        }
+    };
+
+    #send result back
+    Write-Output $result | ConvertTo-Json -Depth 10
+
+}
+
