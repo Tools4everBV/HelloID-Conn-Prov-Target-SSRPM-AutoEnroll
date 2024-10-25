@@ -1,82 +1,63 @@
-#####################################################
-# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-create
-#
-# Version: 2.0.0
-#####################################################
+#################################################
+# HelloID-Conn-Prov-Target-SSRPM-AutoEnroll-Create
+# PowerShell V2
+#################################################
 
-#Initialize default properties
-$p = $person | ConvertFrom-Json
-$c = $configuration | ConvertFrom-Json
-$aref = $accountreference | ConvertFrom-Json
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
-$updateUserOnCorrelate = $c.updateUserOnCorrelate
-
-$connectionString = "Data Source=$($c.server);Initial Catalog=$($c.database);persist security info=True;Integrated Security=SSPI;";    
-
-$success = $true # Set to true at start, because only when an error occurs it is set to false
-$auditLogs = [System.Collections.Generic.List[PSCustomObject]]::new()
-
-$VerbosePreference = "SilentlyContinue"
-$InformationPreference = "Continue"
-$WarningPreference = "Continue"
-
-# Set debug logging
-switch ($($c.isDebug)) {
-    $true { $VerbosePreference = 'Continue' }
-    $false { $VerbosePreference = 'SilentlyContinue' }
-}
-
-function get-SSRPMuser {
+#region functions
+function get-SSRPMuserBySAMAccountName {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory)][Object]$account
+        [Parameter(Mandatory)][String]$SAMAccountName
         , [Parameter(Mandatory)][string]$ConnectionString
     )
     try {
-        write-verbose "search SSRPM database for user with username: $($account.samaccountname)"
-        $query = "SELECT * FROM [enrolled users] WHERE samaccountname = '$($account.samaccountname)'"
+        Write-Information "search SSRPM database for user with username: $SAMAccountName"
+        $query = "SELECT * FROM [enrolled users] WHERE samaccountname = '$($SAMAccountName)'"
 
         # Initialize connection and query information
         # Connect to the SQL server
-        $SqlConnection = New-Object System.Data.SqlClient.SqlConnection
-        $SqlConnection.ConnectionString = $ConnectionString
-        $SqlCmd = New-Object System.Data.SqlClient.SqlCommand
-        $SqlCmd.Connection = $SqlConnection
-        $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
-        
-        #Query to get all person information adjust to liking#
-        $SqlCmd.CommandText = $query
-        $SqlAdapter.SelectCommand = $SqlCmd 
-        $DataSet = New-Object System.Data.DataSet
-        $SqlAdapter.Fill($DataSet) | out-null
-        $sqlData = $DataSet.Tables[0]
 
-        
-        write-verbose "Found $(($sqlData | measure-object).count) user in SSRPM database"
-        return $sqlData | Select-Object -Property * -ExcludeProperty RowError, RowState, Table, ItemArray, HasErrors
+        $SqlConnection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
+        $SqlCmd = [System.Data.SqlClient.SqlCommand]::new($query, $SqlConnection)
+        $SqlAdapter = [System.Data.SqlClient.SqlDataAdapter]::new($SqlCmd)
+        $DataSet = [System.Data.DataSet]::new()
+        $SqlAdapter.Fill($DataSet) | out-null
+
+        $sqlData = $DataSet.Tables[0]
+        Write-Information "Found $($sqlData.Rows.Count) user(s) in SSRPM database"
+        $Rowlist = [System.Collections.Generic.List[object]]::new()
+
+        foreach ($Row in $sqlData.rows) {
+            $Rowlist.Add(($row | Select-Object -Property * -ExcludeProperty RowError, RowState, Table, ItemArray, HasErrors))
+        }
+        return , $Rowlist
+
     }
     catch {
-        Throw "Failed to get SSRPM user - Error: $($_)"   
+        $PSCmdlet.ThrowTerminatingError($PSItem)
     }
 }
+
 
 function New-SSRPMuser {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)][string]$connectionString,
-        [Parameter(Mandatory = $true)][int]$ProfileID,
         [Parameter(Mandatory = $true)][Object]$account
-    )    
+    )
     try {
         if ([string]::IsNullOrEmpty($account.sAMAccountName) -OR
-            [string]::IsNullOrEmpty($account.CanonicalName) -OR       
+            [string]::IsNullOrEmpty($account.CanonicalName) -OR
             [string]::IsNullOrEmpty($account.ObjectSID)) {
-            Throw "one of the mandatory field is empty or missing"
+            Throw "one of the mandatory fields is empty or missing"
         }
 
-        $XML_Answers = $null   
-
-        foreach ($answer in $account.answers) {
+        $XML_Answers = $null
+        $AnswerList = $Account.answers | ConvertFrom-Json
+        foreach ($answer in $AnswerList) {
             if (-NOT([string]::IsNullOrEmpty($answer.QuestionID) -OR [string]::IsNullOrEmpty($answer.text))) {
                 $XML_Answers += "<a id=""$($answer.QuestionID)"">$($answer.text)</a>"
             }
@@ -85,262 +66,129 @@ function New-SSRPMuser {
         $XML_Answers = "<answers>" + $XML_Answers + "</answers>"
 
         #SQL connection
-        $SqlConnection = New-Object System.Data.SqlClient.SqlConnection
-        $SqlConnection.ConnectionString = $ConnectionString;
-        $SqlCmd = New-Object System.Data.SqlClient.SqlCommand
+        $SqlConnection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
+        $SqlCmd = [System.Data.SqlClient.SqlCommand]::new()
 
         #sql command
-        $SqlCmd.CommandText = "$($c.database).dbo.enrolluser"
+        $SqlCmd.CommandText = "$($SqlConnection.Database).dbo.enrolluser"
         $SqlCmd.CommandType = [System.Data.CommandType]::StoredProcedure
 
         #sql parameters
-        [void]$SqlCmd.Parameters.AddWithValue("@ProfileID", $ProfileID) 
-        [void]$SqlCmd.Parameters.AddWithValue("@AD_CanonicalName", $account.CanonicalName)
-        [void]$SqlCmd.Parameters.AddWithValue("@AD_sAMAccountName", $account.SamAccountName)
-        [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)        
-        [void]$SqlCmd.Parameters.AddWithValue("@AD_ObjectSID", $account.ObjectSID)
-
-        [void]$SqlCmd.Parameters.AddWithValue("@Private_EmailAddress", $account.PrivateMail)
-        [void]$SqlCmd.Parameters.AddWithValue("@Private_Mobile", $account.PrivateMobile)
-        [void]$SqlCmd.Parameters.AddWithValue("@XML_Answers", $XML_Answers)
-
-        $SqlCmd.Connection = $SqlConnection
-        $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
-        $SqlAdapter.SelectCommand = $SqlCmd
-        $DataSet = New-Object System.Data.DataSet
-        #execute
-        $SqlAdapter.Fill($DataSet)
-    
-        $SqlConnection.Close()
-        
-    }
-    catch {
-        Throw "Failed to create new SSRPM user - Error: $($_)"    
-    }
-}
-
-function Update-SSRPMuser {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)][string]$connectionString,
-        [Parameter(Mandatory = $true)][Object]$account
-    )    
-    try {
-        if ([string]::IsNullOrEmpty($account.sAMAccountName) -OR
-            [string]::IsNullOrEmpty($account.CanonicalName) -OR       
-            [string]::IsNullOrEmpty($account.ObjectSID)) {
-            Throw "one of the mandatory field is empty or missing"
-        }
-
-        $XML_Answers = $null   
-
-        foreach ($answer in $account.answers) {
-            if (-NOT([string]::IsNullOrEmpty($answer.QuestionID) -OR [string]::IsNullOrEmpty($answer.text))) {
-                $XML_Answers += "<a id=""$($answer.QuestionID)"">$($answer.text)</a>"
-            }
-        }
-
-        $XML_Answers = "<answers>" + $XML_Answers + "</answers>"
-
-        #SQL connection
-        $SqlConnection = New-Object System.Data.SqlClient.SqlConnection
-        $SqlConnection.ConnectionString = $ConnectionString;
-        $SqlCmd = New-Object System.Data.SqlClient.SqlCommand
-
-        #sql command
-        $SqlCmd.CommandText = "updateUser"
-        $SqlCmd.CommandType = [System.Data.CommandType]::StoredProcedure
-
-        #sql parameters
-        [void]$SqlCmd.Parameters.AddWithValue("@SSRPM_ID", $account.SSRPMID)
+        [void]$SqlCmd.Parameters.AddWithValue("@ProfileID", $account.ProfileID)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_CanonicalName", $account.CanonicalName)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_sAMAccountName", $account.SamAccountName)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_EmailAddress", $account.mail)
         [void]$SqlCmd.Parameters.AddWithValue("@AD_ObjectSID", $account.ObjectSID)
-
         [void]$SqlCmd.Parameters.AddWithValue("@Private_EmailAddress", $account.PrivateMail)
         [void]$SqlCmd.Parameters.AddWithValue("@Private_Mobile", $account.PrivateMobile)
         [void]$SqlCmd.Parameters.AddWithValue("@XML_Answers", $XML_Answers)
-        
+
         $SqlCmd.Connection = $SqlConnection
-        $SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
-        $SqlAdapter.SelectCommand = $SqlCmd
-        $DataSet = New-Object System.Data.DataSet
+        $SqlAdapter = [System.Data.SqlClient.SqlDataAdapter]::new($SqlCmd)
+        $DataSet = [System.Data.DataSet]::new()
         #execute
         $SqlAdapter.Fill($DataSet)
-    
         $SqlConnection.Close()
-        
     }
     catch {
-        Throw "Failed to update new SSRPM user - Error: $($_)"    
+        $PSCmdlet.ThrowTerminatingError($PSItem)
     }
 }
-
-function format-date {
-    [CmdletBinding()]
-    Param
-    (
-        [string]$date,
-        [string]$InputFormat,
-        [string]$OutputFormat
-    )
-    try {
-        if (-NOT([string]::IsNullOrEmpty($date))) {    
-            $dateString = get-date([datetime]::ParseExact($date, $InputFormat, $null)) -Format($OutputFormat)
-        }
-        else {
-            $dateString = $null
-        }
-
-        return $dateString
-    }
-    catch {
-        throw("An error was thrown while formatting date: $($_.Exception.Message): $($_.ScriptStackTrace)")
-    }
-    
-}
+#endregion
 
 try {
+    # Initial Assignments
+    $outputContext.AccountReference = 'Currently not available'
 
-    $account = [PSCustomObject]@{
-        SSRPMID        = $aref
-        
-        # #on dependent system:
-        # sAMAccountName = $p.accounts._2a468112bb3e42ed87f6f53c936d6640.SamAccountName
-        # mail           = $p.accounts._2a468112bb3e42ed87f6f53c936d6640.mail
-        # CanonicalName  = $null
-        # ObjectSID      = $null
-
-        #based on AD search:
-        CanonicalName  = $null
-        sAMAccountName = $null
-        mail           = $null
-        ObjectSID      = $null
-
-        #SSRPM enrolment variables:
-        PrivateMobile  = $p.contact.Personal.Phone.Mobile
-        privateMail    = $p.contact.Personal.Email
-        answers        = @(@{
-                QuestionID = 16 #geboortedatum
-                text       = format-date -date $p.details.BirthDate  -InputFormat 'yyyy-MM-ddThh:mm:ssZ' -OutputFormat "dd-MM-yyyy"
-            },
-            @{
-                QuestionID = 17 #postcode
-                text       = $p.contact.personal.address.PostalCode -Replace '[^a-zA-Z0-9]', ""
-            },
-            @{
-                QuestionID = 18
-                text       = $p.externalID
-            }
-        )
-
+    if($null -ne $actionContext.Data.Objectsid)
+    {
+        $sidObjectBytes = [system.convert]::FromBase64String($actionContext.Data.Objectsid)
+        $securityIdentifier = [system.security.Principal.SecurityIdentifier]::new($sidObjectBytes,0)
+        $SidString = $securityIdentifier.ToString()
+        $actionContext.Data.Objectsid = $SidString
     }
 
+    # Validate correlation configuration
+    if ($actionContext.CorrelationConfiguration.Enabled) {
+        $correlationField = $actionContext.CorrelationConfiguration.AccountField
+        $correlationValue = $actionContext.CorrelationConfiguration.PersonFieldValue
 
-
-    try {
-        write-verbose "search AD for user with employeeID: $($p.externalID)"
-        $adUser = Get-AdUser -ldapfilter "(employeeid=$($p.externalID))" -Properties CanonicalName, samaccountname, mail
- 
-    }
-    catch {
-        write-verbose "$($_)"
-        $adUser = $null
-    }
-    
-    $account.CanonicalName = $adUser.CanonicalName
-    $account.ObjectSID = $aduser.sid.value
-    $account.samaccountname = $aduser.samaccountname
-    $account.mail = $aduser.mail
-
-    $SSRPMuser = get-SSRPMuser -account $account -connectionString $connectionString
-    if (($SSRPMuser | measure-object).count -eq 1) {
-        write-verbose "User with samaccountname $($account.samaccountname) found in SSRPM DB"    
-
-        if ($updateUserOnCorrelate) {
-            $action = "correlate-update"
+        if ([string]::IsNullOrEmpty($($correlationField))) {
+            throw 'Correlation is enabled but not configured correctly'
         }
-        else {
-            $action = "correlate"
+        if ([string]::IsNullOrEmpty($($correlationValue))) {
+            throw 'Correlation is enabled but [accountFieldValue] is empty. Please make sure it is correctly mapped'
         }
+        # Determine if a user needs to be [created] or [correlated]
+
+        $getResult = get-SSRPMuserBySAMAccountName -SAMAccountName $correlationValue -ConnectionString $actionContext.Configuration.ConnectionString
     }
-    elseif (($SSRPMuser | measure-object).count -gt 1) {
-        throw "User with samaccountname $($account.samaccountname) found multiple times"
+    $NrFound = $getResult.Count
+
+    #$NrFound = ($correlatedAccount | measure-object).count
+    if ($NrFound -eq 1) {
+        $action = 'CorrelateAccount'
+        $CorrelatedAccount = $getResult[0]
+    }
+    elseif ($NrFound -gt 1) {
+        $action = 'MultipleAccounts'
     }
     else {
-        $action = "create"
+        $action = 'CreateAccount'
     }
 
+    # Process
     switch ($action) {
-        "correlate" {  
-            write-verbose "correlate only"
-            $account.SSRPMID = $SSRPMuser.id
-        
-        }
-        "correlate-update" {
-            write-verbose "correlate and update user"
-            
-            $account.SSRPMID = $SSRPMuser.id
-            if (-Not($dryRun -eq $True)) {
-                $result = Update-SSRPMuser -connectionString $connectionString -account $account       
+        'CreateAccount' {
+
+            if (-not($actionContext.DryRun -eq $true)) {
+                Write-Information 'Creating and correlating SSRPM-AutoEnroll account'
+
+                $result = New-SSRPMuser -connectionString $actionContext.Configuration.ConnectionString -account $ActionContext.Data
+                $getResult = get-SSRPMuserBySAMAccountName  -SAMAccountName $correlationValue -ConnectionString $actionContext.Configuration.ConnectionString
+                $createdAccount = $getResult[0]
+                $outputContext.Data = $createdAccount
+                $outputContext.AccountReference = $createdAccount.Id
             }
             else {
-                write-warning "[dryrun] will update during enforcement: $($account | convertto-json)"
-            }           
-        
-        }
-        "create" {
-            write-verbose "creating user"
-            
-            if (-Not($dryRun -eq $True)) {
-                $result = New-SSRPMuser -connectionString $connectionString -account $account -ProfileID 3                
+                Write-Information '[DryRun] Create and correlate SSRPM-AutoEnroll account, will be executed during enforcement'
             }
-            else {
-                write-warning "[dryrun] will create during enforcement: $($account | convertto-json)"
-            }
-            $SSRPMuser = get-SSRPMuser -account $account  -connectionString $connectionString 
-            $account.SSRPMID = $SSRPMuser.id
+            $auditLogMessage = "Create account was successful. AccountReference is: [$($outputContext.AccountReference)]"
+            break
         }
-        Default {
-            throw "no action defined"
+
+        'CorrelateAccount' {
+            Write-Information 'Correlating SSRPM-AutoEnroll account'
+
+            $outputContext.Data = $correlatedAccount
+            $outputContext.AccountReference = $correlatedAccount.Id
+            $outputContext.AccountCorrelated = $true
+            $auditLogMessage = "Correlated account: [$($outputContext.AccountReference)] on field: [$($correlationField)] with value: [$($correlationValue)]"
+            break
         }
+
+        'MultipleAccounts' {
+            throw "User with samaccountname $correlationValue found multiple times"
+        }
+
     }
-    $auditLogs.Add([PSCustomObject]@{
-            Message = "$action user successfully for $($p.displayname) with aref: $($account.SSRPMID)"
+
+    $outputContext.success = $true
+    $outputContext.AuditLogs.Add([PSCustomObject]@{
+            Action  = $action
+            Message = $auditLogMessage
             IsError = $false
         })
 }
 catch {
-    $success = $false
-    write-error "$action user failed - $($_)"
-    $auditLogs.Add([PSCustomObject]@{
-            Message = "$action user failed - $($_)"
+    $outputContext.success = $false
+    $ex = $PSItem
+
+    $auditMessage = "Could not create or correlate SSRPM-AutoEnroll account. Error: $($ex.Exception.Message)"
+    Write-Warning "Error at Line '$($ex.InvocationInfo.ScriptLineNumber)': $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+
+    $outputContext.AuditLogs.Add([PSCustomObject]@{
+            Message = $auditMessage
             IsError = $true
         })
 }
-finally {
-    #build up result
-    $aref = $account.SSRPMID
-
-    if ([string]::isnullorempty($account.SSRPMID) -and $dryrun) {
-        $aref = "[dryrun]dummy"
-    }
-
-    $result = [PSCustomObject]@{ 
-        Success          = $success
-        AccountReference = $aref
-        auditLogs        = $auditLogs
-        Account          = $account
-        # Optionally return data for use in other systems
-        ExportData       = @{
-            ID             = $account.SSRPMID
-            samaccountname = $account.samaccountname
-        }
-    };
-
-    #send result back
-    Write-Output $result | ConvertTo-Json -Depth 10
-
-}
-
