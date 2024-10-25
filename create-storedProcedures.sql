@@ -9,7 +9,7 @@
 
 
 /****** Object:  StoredProcedure [dbo].[EnrollUser]    Script Date: 22/01/2024 10:34:17 ******/
-USE [SSRPM DATABASE] --change into your database name
+USE [MSSQLSSRPM] --change into your database name
 
 SET ANSI_NULLS ON
 GO
@@ -163,17 +163,7 @@ BEGIN
 END
 GO
 
-USE [T4E_SSRPM]
-GO
-
-/****** Object:  StoredProcedure [dbo].[UpdateUser]    Script Date: 22/01/2024 10:35:51 ******/
-SET ANSI_NULLS ON
-GO
-
-SET QUOTED_IDENTIFIER ON
-GO
-
-USE [T4E_SSRPM]
+USE [MSSQLSSRPM]
 GO
 
 /****** Object:  StoredProcedure [dbo].[UpdateUser]    Script Date: 22/01/2024 10:35:51 ******/
@@ -317,7 +307,7 @@ END
 GO
 
 
-USE [T4E_SSRPM]
+USE [MSSQLSSRPM]
 GO
 
 /****** Object:  StoredProcedure [dbo].[deleteUser]    Script Date: 22/01/2024 10:36:17 ******/
