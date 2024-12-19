@@ -45,8 +45,8 @@
             "Create",
             "Update"
           ],
-          "MappingMode": "Fixed",
-          "Value": "\"\"",
+          "MappingMode": "Complex",
+          "Value": "\"function getValue() {\\n\\nlet AnswersJSON = \\\"[{\\\\\\\"QuestionID\\\\\\\":16,\\\\\\\"text\\\\\\\":\\\\\\\"geboortedatum\\\\\\\"},{\\\\\\\"QuestionID\\\\\\\":17,\\\\\\\"text\\\\\\\":\\\\\\\"postcode\\\\\\\"},{\\\\\\\"QuestionID\\\\\\\":18,\\\\\\\"text\\\\\\\":\\\\\\\"externalid\\\\\\\"}]\\\"\\n    return AnswersJSON;\\n}\\n\\ngetValue();\"",
           "UsedInNotifications": false,
           "StoreInAccountData": false
         }
